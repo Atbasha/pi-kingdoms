@@ -1,0 +1,113 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pi_kingdoms_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev_password_change_in_prod
+      POSTGRES_DB: pi_kingdoms_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pi_kingdoms_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pi_kingdoms_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pi_kingdoms_network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pi_kingdoms_api
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: pi_kingdoms_dev
+      DB_USER: postgres
+      DB_PASSWORD: dev_password_change_in_prod
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev_jwt_secret_change_in_prod
+      PI_DEVELOPMENT: "true"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - pi_kingdoms_network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pi_kingdoms_web
+    environment:
+      REACT_APP_API_URL: http://localhost:3001
+      REACT_APP_PI_API_KEY: dev_pi_key
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - pi_kingdoms_network
+
+  # Admin Dashboard
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: pi_kingdoms_admin
+    environment:
+      REACT_APP_API_URL: http://localhost:3001
+    ports:
+      - "3002:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+    networks:
+      - pi_kingdoms_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  pi_kingdoms_network:
+    driver: bridge
